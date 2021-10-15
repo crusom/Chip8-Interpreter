@@ -10,7 +10,7 @@
 #include "chip8.cpp"
 #include "renderer.h"
 
-#define TICKS 700
+#define TICKS 500
 
 void process_input(GLFWwindow *window, Chip8 *chip8);
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);

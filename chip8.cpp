@@ -69,7 +69,7 @@ class Chip8 {
     };
 
     std::vector<OpcodeTableEntry> opcode_table;
-    
+
     std::stack<uint16_t> call_stack;
     
     uint16_t opcode;
@@ -380,7 +380,12 @@ class Chip8 {
 
     
     for(int j = 0;  j < n; j++, y++) {
-   
+ 
+      // we need to wrap y around every time in order to
+      // do not exceed the height
+      // otherwise it may be glichy ;o
+      y %= 32;
+
       uint8_t pixel = memory[I + j];
    
       for(int k = 0; k < 8; k++) {
@@ -472,9 +477,9 @@ class Chip8 {
   }
   
   void Chip8::OpcodeFX29(Args args) {
-    // chars are 5 bytes long  
-    uint8_t char_index = V[args.X] * 5;
-    I = memory[char_index];
+    // chars are 5 bytes long and they lie in the
+    // beginning of the memory
+    I = V[args.X] * 5;
   }
 
   void Chip8::OpcodeFX33(Args args) {
@@ -540,8 +545,6 @@ class Chip8 {
     pc += 2;
     Args args;
     args.value = opcode;
-
-    
 
     for(const auto& entry : opcode_table) {
 
