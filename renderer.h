@@ -7,7 +7,7 @@
 class Renderer {
 
   public:
-    Renderer(uint8_t *screen_ptr);
+    Renderer(std::vector<uint8_t> *screen_ptr);
     ~Renderer();
 
     void Render(Shader *myShader);
@@ -15,9 +15,9 @@ class Renderer {
     void UpdateTexture();
 
   private:
-    uint8_t *screen;
-    uint8_t screenData[64 * 32];
-
+    std::vector<uint8_t> *screen;
+    uint8_t *screenData, screenWidth, screenHeight;
+    uint16_t screenSize;
     GLuint texture, VBO, VAO, EBO;
 
 };

@@ -5,14 +5,13 @@ Renderer::~Renderer(){
   glDeleteVertexArrays(1, &VAO);
   glDeleteBuffers(1, &VBO);
   glDeleteBuffers(1, &EBO);
-
+  delete[] screenData;
 }
 
-Renderer::Renderer(uint8_t *screen_ptr): screen(screen_ptr){};
+Renderer::Renderer(std::vector<uint8_t> *screen_ptr): screen(screen_ptr){};
 
 
 void Renderer::Init(){
-
   //For 2D image textures, 0,0 in texture coordinates corresponds to the bottom left corner of the image
   //pos x, y and z coordinate, tex x, y
   float vertices[] = {
@@ -62,9 +61,23 @@ void Renderer::Init(){
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
- 
-  memset(screenData, 0, 2048 * sizeof(screenData[0]));
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 64, 32, 0, GL_RED, GL_UNSIGNED_BYTE, &screenData);
+
+
+  screenSize = screen->size();
+  screenData = new uint8_t[screenSize];
+  memset(screenData, 0, screenSize * sizeof(screenData[0]));
+
+  printf("screenSize: %d", screenSize);
+  
+  if(screenSize == 2048){
+   screenWidth = 64;
+   screenHeight = 32;
+  } else {
+    screenWidth = 128;
+    screenHeight = 64;
+ }
+
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, screenWidth, screenHeight, 0, GL_RED, GL_UNSIGNED_BYTE, screenData);
 
   const GLint swizzleMask[] = {GL_RED, GL_RED, GL_RED, GL_ONE};
   glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
@@ -75,14 +88,14 @@ void Renderer::Init(){
 
 void Renderer::UpdateTexture() { 
   
-  for(int i = 0; i < 2048; i++){
-    if(screen[i] == 0)
+  for(int i = 0; i < screenSize; i++){
+    if(screen->at(i) == 0)
       screenData[i] = 0;
     else
       screenData[i] = 255;
  }
  
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 64, 32, GL_RED, GL_UNSIGNED_BYTE, &screenData);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, screenWidth, screenHeight, GL_RED, GL_UNSIGNED_BYTE, screenData);
   const GLint swizzleMask[] = {GL_RED, GL_RED, GL_RED, GL_ONE};
   glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
 }

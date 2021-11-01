@@ -10,12 +10,12 @@
 #include "chip8.cpp"
 #include "renderer.h"
 
-#define TICKS 500
+uint32_t TICKS = 60 * 7;
 
 void process_input(GLFWwindow *window, Chip8 *chip8);
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
-void argc_check(int8_t argc, int8_t num, std::string arg_name);
+
 
 int PIXEL_SIZE = 16;
 int SCR_WIDTH = 64 * PIXEL_SIZE;
@@ -30,37 +30,53 @@ int main(int argc, char* argv[]){
   Chip8 chip8;
   key_pressed = chip8.key_pressed;
   last_key_pressed = &chip8.last_key_pressed;
-
+  
   if(argc < 2) {
     throw std::invalid_argument("Usage: chip8 <ROM file> (optional args)");
   }
 
+  
+  std::vector<std::string> args(argv, argv+argc);
+
   //TODO implement arguments (ticks, memory etc.)
-  for(int i = 1; i < argc; ++i) {
+  std::cout << args.size();
+  for(int i = 2; i < args.size(); i++) {
     
-    std::string arg = argv[i];
-    
+    std::string arg = args[i];
+    //printf("arg: %s\n", *arg);
+    std::cout << "arg:" << arg << "\n";
+
     if((arg == "-h") || (arg == "--help")) {
       //show_usage(argv[0]);
       return 0;
     } 
     else if ((arg == "-t") || (arg == "--ticks")) {
-       argc_check(argc, i, "ticks");
-       //ticks = argv[i + 1];
-       //i++;
+      TICKS = (uint32_t)stol(args.at(i + 1));
+      i++;  
     }
-    else {
+
+    else if((arg == "-e") || (arg == "--extend")) {
+      
+      std::cout << "arg:" << arg << "\n";
+      if(args.at(i + 1) == "schip"){
+        chip8.SChipExtend();
+        puts("EXTENDED!");
+      }
+      i++;
+    }
     
+    else {
+      std::cerr << "Invalid argument: " << arg << '\n';
+      return -1;
     }
   }
 
   if(!chip8.LoadRom(argv[1])){ 
-    puts("Invalid ROM");
+    throw std::invalid_argument("Invalid ROM");
     return -1;
   }
-
-  Renderer renderer(chip8.screen);
-
+  
+  Renderer renderer(&chip8.screen);
   //https://www.glfw.org/docs/3.3/intro_guide.html
   glfwInit();
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -77,11 +93,9 @@ int main(int argc, char* argv[]){
   }
 
   glfwMakeContextCurrent(window);
-  // we don't want v-sync since we're waiting in our loop
-  glfwSwapInterval(0);
+  glfwSwapInterval(1); //v-sync for stable fps
 
   glfwSetKeyCallback(window, key_callback);
-
   glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
   glfwSetErrorCallback([](int, const char* description) { printf("Error: %s \n", description);});
 
@@ -90,15 +104,15 @@ int main(int argc, char* argv[]){
     return -1;
   }
 
+
   Shader myShader("vshader.vs", "fshader.fs");
   
   renderer.Init();
-  
   myShader.use();
   myShader.setInt("myTex", 0);
   
-  uint8_t interval = 1000 / TICKS;
-
+  uint32_t interval = 1000000000 / TICKS;
+ 
   while(!glfwWindowShouldClose(window)){
     
     auto start = std::chrono::steady_clock::now();
@@ -118,12 +132,13 @@ int main(int argc, char* argv[]){
     glfwPollEvents();
 
     auto end = std::chrono::steady_clock::now();
-    auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+    auto delta_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count();
     //printf("delta_time: %d\n", delta_time);
     
     if(delta_time < interval){
-      std::this_thread::sleep_for(std::chrono::milliseconds(interval - delta_time));
+      std::this_thread::sleep_for(std::chrono::nanoseconds(interval - delta_time));
     }
+
   }
 
   glfwTerminate();
@@ -150,24 +165,19 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
   
   for(int i = 0; i < 16; i++){
     
-    if(key == keyboard[i] && action == GLFW_PRESS) {
+    if(key == keyboard[i] && action == GLFW_RELEASE) {
+      key_pressed[i] = false;
+    }
+    else if(key == keyboard[i] && action == GLFW_PRESS) {
       key_pressed[i] = true;
       *last_key_pressed = i;
     }
-    else if(key == keyboard[i] && action == GLFW_RELEASE) {
-      key_pressed[i] = false;
-    }
   }
 }
+
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height){
   glViewport(0, 0, width, height);
 }
 
 
-void argc_check(int8_t argc, int8_t num, std::string arg_name){
- 
-  if(argc <= num + 1){
-    std::cerr << arg_name << " option requires an argument\n";
-  }
-}

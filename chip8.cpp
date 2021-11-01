@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <chrono>
 
+#include <algorithm>
+
 class Chip8 {
   public:
     Chip8();
@@ -17,6 +19,7 @@ class Chip8 {
     bool LoadRom(const char * filename);
     void Reset();
     void InitOpcodeTable();
+    void SChipExtend();
     
     uint8_t memory[4096];
     // registers
@@ -26,10 +29,13 @@ class Chip8 {
     // program counter
     uint16_t pc; 
 
-    uint8_t screen[64 * 32];
+    std::vector<uint8_t> screen;
+    uint8_t screen_width, screen_height;
+
     bool key_pressed[16];
     int last_key_pressed;
     bool redraw_screen;
+    bool screen_extended;
 
     typedef union {
       // bits are read from the end
@@ -75,10 +81,10 @@ class Chip8 {
     uint16_t opcode;
     uint8_t delay_timer;
     uint8_t sound_timer;
-    //std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_delay_timer;
+    //std::chrono::steady_clock time_delay_timer;
+    std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_delay_timer;
     //std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_sound_timer;
 
-    // functions
     void Opcode0NNN(Args args);
     void Opcode00E0(Args args);
     void Opcode00EE(Args args);
@@ -114,6 +120,16 @@ class Chip8 {
     void OpcodeFX33(Args args);
     void OpcodeFX55(Args args);
     void OpcodeFX65(Args args);
+    //SChip
+    void Opcode00CN(Args args); 
+    void Opcode00FB(Args args);
+    void Opcode00FC(Args args);
+    void Opcode00FD(Args args);
+    void Opcode00FE(Args args);
+    void Opcode00FF(Args args);
+    void OpcodeFX30(Args args);
+    void OpcodeFX75(Args args);
+    void OpcodeFX85(Args args);
 
 };
 
@@ -139,6 +155,28 @@ class Chip8 {
       0xF0, 0x80, 0xF0, 0x80, 0x80  //F
   };
 
+  
+  uint8_t fontset_extended[160] ={ 
+      0xF0, 0xF0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, //0
+      0x20, 0x20, 0x60, 0x60, 0x20, 0x20, 0x20, 0x20, 0x70, 0x70, //1
+      0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, //2
+      0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //3
+      0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0x10, 0x10, //4
+      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //5
+      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //6
+      0xF0, 0xF0, 0x10, 0x10, 0x20, 0x20, 0x40, 0x40, 0x40, 0x40, //7
+      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //8
+      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //9
+      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x90, 0x90, 0x90, 0x90, //A
+      0xE0, 0xE0, 0x90, 0x90, 0xE0, 0xE0, 0x90, 0x90, 0xE0, 0xE0, //B
+      0xF0, 0xF0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0xF0, 0xF0, //C
+      0xE0, 0xE0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xE0, 0xE0, //D
+      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, //E
+      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x80, 0x80, 0x80, 0x80  //F
+  };
+
+
+
 
   Chip8::Chip8(){
     InitOpcodeTable();
@@ -153,14 +191,17 @@ class Chip8 {
     opcode = 0;
     delay_timer = 0;
     sound_timer = 0;
-    //time_delay_timer = std::chrono::steady_clock::now();
+    time_delay_timer = std::chrono::steady_clock::now();
     //time_sound_timer = std::chrono::steady_clock::now();
     redraw_screen = false;
     last_key_pressed = -1;
+   
+    screen.resize(2048);
+    screen_width = 64;
+    screen_height = 32;
 
     int i = 0;
-    
-    memset(screen, 0, 2048 * sizeof(screen[0]));
+
     for(i = 0; i < 16; i++){
       V[i] = 0; 
       key_pressed[i] = false;
@@ -232,8 +273,8 @@ class Chip8 {
   void Chip8::Opcode0NNN(Args args) {}
 
   void Chip8::Opcode00E0(Args args) {
-
-    memset(screen, 0, 2048 * sizeof(screen[0]));
+    
+    std::fill(screen.begin(), screen.end(), 0);
     redraw_screen = true;
   }
 
@@ -372,19 +413,19 @@ class Chip8 {
   
 
   void Chip8::OpcodeDXYN(Args args) {   
-
-    uint8_t x = V[args.X] % 64;
-    uint8_t y = V[args.Y] % 32;
+      
+    uint8_t x = V[args.X] % screen_width;
+    uint8_t y = V[args.Y] % screen_height;
     uint8_t n = args.N;
     bool flipped = false;
-
+    std::cout << screen_width << "\n";
     
     for(int j = 0;  j < n; j++, y++) {
- 
+
       // we need to wrap y around every time in order to
       // do not exceed the height
       // otherwise it may be glichy ;o
-      y %= 32;
+      y %= screen_height;
 
       uint8_t pixel = memory[I + j];
    
@@ -392,7 +433,7 @@ class Chip8 {
         // read from right to left
         // otherwise screen is mirrored
         uint8_t bit = ((pixel << k) & 128);
-        if(bit && screen[x + k + y * 64]) {
+        if(bit && screen[x + k + y * screen_width]) {
           flipped |= true;
         }
 
@@ -402,7 +443,7 @@ class Chip8 {
         
         // wrap around cause when pixel goes through x = 64 then y needs to stay the same, not
         // be increased
-        screen[(x + k) % 64 + y * 64] ^= bit;
+        screen[(x + k) % screen_width + y * screen_width] ^= bit;
       }
 
     }
@@ -438,24 +479,33 @@ class Chip8 {
   }
   
   void Chip8::OpcodeFX07(Args args) {
-/*
-    auto current_time = std::chrono::steady_clock::now();
-    auto delta_time = (time_delay_timer - current_time) / std::chrono::milliseconds(1);
-    time_delay_timer = current_time;
 
-    uint8_t fixed_delta_time = uint8_t(delta_time * 0.06);
+    if(delay_timer > 0){
 
-    delay_timer = std::max(0, (int)delay_timer - (int)fixed_delta_time);
-    delay_timer = std::max(0, (int)delay_timer - (int)fixed_delta_time);
+      auto current_time = std::chrono::steady_clock::now();
+      auto delta_time = std::chrono::duration_cast<std::chrono::nanoseconds>(current_time-time_delay_timer).count();
+      
+      //printf("delta_time: %d\n", delta_time);
+      // 1 / 0.00000006 == 16666666 :)
+      if(delta_time > 16666666){
+        
+        time_delay_timer = current_time;
+        
+       // printf("delay timer1: %d\n", delay_timer);
+       // printf("delay_timer: %d\n", (int)delay_timer);
+       // printf("subst: %d\n", (int)(delta_time * 0.00000006));
+        delay_timer = std::max(0, (int)delay_timer - (int)(delta_time * 0.00000006));
 
-    printf("fixed_delta_time: %d\n", fixed_delta_time);   
-  */ 
-    V[args.X] = delay_timer;
+      // printf("delay_timer after sub: %d\n\n", delay_timer);    
+      }
+    }
     
+    V[args.X] = delay_timer;
   }
   
   void Chip8::OpcodeFX15(Args args) {
-
+  
+    time_delay_timer = std::chrono::steady_clock::now();
     delay_timer = V[args.X];
   }
 
@@ -505,6 +555,103 @@ class Chip8 {
     }
   }
 
+
+
+  //SChip opcodes 
+
+  void Chip8::Opcode00CN(Args args){
+
+    uint8_t lines = args.N * screen_width;
+    screen.erase(screen.begin(), screen.begin() + lines);
+    std::rotate(screen.begin(), screen.begin() + lines, screen.end());
+  }
+  
+  
+  //Scroll display 4 pixels right
+  void Chip8::Opcode00FB(Args args){
+    
+    for(int y = 0; y < screen_height; y++){
+      
+      uint16_t xline = y * screen_width;
+      // delete 4 bytes from the left  
+      for(int x = 0; x < 4; x++){
+        screen.at(xline + x) = 0;
+      }
+      // go through line and move screen to erased left
+      for(int x = 0; x < screen_width - 4; x++){
+        screen.at(xline + x) = screen.at(xline + x + 4); 
+      } 
+      // and erase the last 4 bytes
+      for(int x = screen_width - 4; x < screen_width; x++){
+        screen.at(xline + x) = 0;
+      }
+
+      //next line :)
+    }
+ 
+    redraw_screen = true;
+  }
+    
+  //Scroll display 4 pixels left
+  void Chip8::Opcode00FC(Args args){
+
+    for(int y = 0; y < screen_height; y++){
+      
+      uint16_t xline = (y + 1) * screen_width - 1;
+      // delete 4 bytes from the right  
+      for(int x = 0; x < 4; x++){
+        screen.at(xline - x) = 0;
+      }
+      // go through line and move screen to erased right
+      for(int x = 0; x < screen_width - 4; x++){
+        screen.at(xline + x) = screen.at(xline - x - 4); 
+      } 
+      // and erase the first 4 bytes
+      for(int x = screen_width - 4; x < screen_width; x++){
+        screen.at(xline - x) = 0;
+      }
+
+      //next line :)
+    }
+
+    redraw_screen = true;
+  
+  }
+  
+  //Exit CHIP interpreter
+  void Chip8::Opcode00FD(Args args){
+    //TODO flag that informes to close?
+  }
+  
+  //Disable extended screen mode
+  void Chip8::Opcode00FE(Args args){
+    //TODO test
+    puts("disabled extended screen mode");
+    screen.resize(2048);
+    screen_height = 32;
+    screen_width = 64;
+  }
+  
+  //Enable extended screen mode for full-screen graphics
+  void Chip8::Opcode00FF(Args args){
+    //TODO test
+    screen.resize(4096);
+    screen_height = 64;
+    screen_width = 128;
+  }
+  
+  // 10 bytes font
+  void Chip8::OpcodeFX30(Args args){
+    
+    I = V[args.X] * 10;
+  }
+  
+  void Chip8::OpcodeFX75(Args args){}
+  
+  void Chip8::OpcodeFX85(Args args){}
+
+
+
   //https://dev.krzaq.cc/post/you-dont-need-a-stateful-deleter-in-your-unique_ptr-usually/
   struct FileDeleter {
     void operator()(FILE* ptr) const {
@@ -522,8 +669,33 @@ class Chip8 {
     }
 
     return fread(&memory[0] + 512, 1, 4096 - 512, f.get()) > 0;  
+  }
+
+
+  void Chip8::SChipExtend(){
+    
+    screen.resize(4096);
+    std::fill(screen.begin(), screen.end(), 0);
+    screen_width = 128;
+    screen_height = 64;
+
+    std::vector<OpcodeTableEntry> schip_opcode_table = {
+      // opcode|mask|function pointer
+      { 0x00C0, 0xFFFF, &Chip8::Opcode00CN },
+      { 0x00FB, 0xFFFF, &Chip8::Opcode00FB },
+      { 0x00FC, 0xFFFF, &Chip8::Opcode00FC },
+      { 0x00FD, 0xFFFF, &Chip8::Opcode00FD },
+      { 0x00FE, 0xFFFF, &Chip8::Opcode00FE },
+      { 0x00FF, 0xFFFF, &Chip8::Opcode00FF }, 
+      { 0xF030, 0xF0FF, &Chip8::OpcodeFX30 },
+      { 0xF075, 0xF0FF, &Chip8::OpcodeFX75 },
+      { 0xF085, 0xF0FF, &Chip8::OpcodeFX85 },
+    };
+
+    opcode_table.insert(opcode_table.end(), schip_opcode_table.begin(), schip_opcode_table.end());
 
   }
+
 
   void Chip8::MainLoop(){
 
@@ -549,16 +721,11 @@ class Chip8 {
     for(const auto& entry : opcode_table) {
 
       if((opcode & entry.mask) == entry.opcode) {
-        //printf("opcode: %x\n", entry.opcode);
+        printf("opcode: %x\n", entry.opcode);
         auto handler = entry.handler;
         // calling opcode through function pointer
         (this->*handler)(args);
         break;
       }
-    } 
-    if(delay_timer > 0){
-      //printf("delaytimer: %d\n", delay_timer);
-      --sound_timer;
-      --delay_timer;
     }
 }
