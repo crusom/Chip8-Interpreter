@@ -50,7 +50,6 @@ class Shader{
 			// compile shaders
 			unsigned int vertex, fragment;
 			// vertex shader
-      puts("shaders test");
 			vertex = glCreateShader(GL_VERTEX_SHADER);
 			glShaderSource(vertex, 1, &vShaderCode, NULL);
 			glCompileShader(vertex);

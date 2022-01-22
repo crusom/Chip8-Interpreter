@@ -19,7 +19,8 @@ class Chip8 {
     bool LoadRom(const char * filename);
     void Reset();
     void InitOpcodeTable();
-    void SChipExtend();
+    void DebugRender();
+    //void SChipExtend();
     
     uint8_t memory[4096];
     // registers
@@ -29,13 +30,14 @@ class Chip8 {
     // program counter
     uint16_t pc; 
 
+    int X, Y;
+
     std::vector<uint8_t> screen;
     uint8_t screen_width, screen_height;
 
     bool key_pressed[16];
     int last_key_pressed;
     bool redraw_screen;
-    bool screen_extended;
 
     typedef union {
       // bits are read from the end
@@ -55,10 +57,23 @@ class Chip8 {
       uint16_t value;
     } Args;
 
+    std::string curr_opcode = "";
+    bool disas = false;
+    bool is_extended = false;
+    
+    struct Quirks {
+      bool jump = false;
+      bool shift = false;
+      bool clip_sprite = false;
+    } Quirks;
+
+    struct Quirks quirks;
+    bool hires = false;
+    std::vector<int> breakpoints;
 
   private:
-    
-  
+ 
+
     struct OpcodeTableEntry {
       uint16_t opcode;
       uint16_t mask;
@@ -71,13 +86,14 @@ class Chip8 {
        in this case we're calling associated opcode function
       */
       void (Chip8::*handler)(Args);
-
+      
     };
 
     std::vector<OpcodeTableEntry> opcode_table;
-
     std::stack<uint16_t> call_stack;
-    
+    // schip
+    uint8_t rpl_flags[8];
+
     uint16_t opcode;
     uint8_t delay_timer;
     uint8_t sound_timer;
@@ -131,6 +147,7 @@ class Chip8 {
     void OpcodeFX75(Args args);
     void OpcodeFX85(Args args);
 
+    void Disassembly(Args args, uint16_t opcode);
 };
 
 
@@ -156,26 +173,47 @@ class Chip8 {
   };
 
   
-  uint8_t fontset_extended[160] ={ 
-      0xF0, 0xF0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, //0
-      0x20, 0x20, 0x60, 0x60, 0x20, 0x20, 0x20, 0x20, 0x70, 0x70, //1
-      0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, //2
-      0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //3
-      0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0x10, 0x10, //4
-      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //5
-      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //6
-      0xF0, 0xF0, 0x10, 0x10, 0x20, 0x20, 0x40, 0x40, 0x40, 0x40, //7
-      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //8
-      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //9
-      0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x90, 0x90, 0x90, 0x90, //A
-      0xE0, 0xE0, 0x90, 0x90, 0xE0, 0xE0, 0x90, 0x90, 0xE0, 0xE0, //B
-      0xF0, 0xF0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0xF0, 0xF0, //C
-      0xE0, 0xE0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xE0, 0xE0, //D
-      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, //E
-      0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x80, 0x80, 0x80, 0x80  //F
+  uint8_t fontset_extended[100] ={ 
+      //0xF0, 0xF0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, //0
+      //0x20, 0x20, 0x60, 0x60, 0x20, 0x20, 0x20, 0x20, 0x70, 0x70, //1
+      //0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, //2
+      //0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //3
+      //0x90, 0x90, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0x10, 0x10, //4
+      //0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //5
+      //0xF0, 0xF0, 0x80, 0x80, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //6
+      //0xF0, 0xF0, 0x10, 0x10, 0x20, 0x20, 0x40, 0x40, 0x40, 0x40, //7
+      //0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, //8
+      //0xF0, 0xF0, 0x90, 0x90, 0xF0, 0xF0, 0x10, 0x10, 0xF0, 0xF0, //9
+      // Schip
+      0x3C, 0x7E, 0xE7, 0xC3, 0xC3, 0xC3, 0xC3, 0xE7, 0x7E, 0x3C,
+      0x18, 0x38, 0x58, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C,
+      0x3E, 0x7F, 0xC3, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xFF, 0xFF,
+      0x3C, 0x7E, 0xC3, 0x03, 0x0E, 0x0E, 0x03, 0xC3, 0x7E, 0x3C,
+      0x06, 0x0E, 0x1E, 0x36, 0x66, 0xC6, 0xFF, 0xFF, 0x06, 0x06,
+      0xFF, 0xFF, 0xC0, 0xC0, 0xFC, 0xFE, 0x03, 0xC3, 0x7E, 0x3C,
+      0x3E, 0x7C, 0xE0, 0xC0, 0xFC, 0xFE, 0xC3, 0xC3, 0x7E, 0x3C,
+      0xFF, 0xFF, 0x03, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x60, 0x60,
+      0x3C, 0x7E, 0xC3, 0xC3, 0x7E, 0x7E, 0xC3, 0xC3, 0x7E, 0x3C,
+      0x3C, 0x7E, 0xC3, 0xC3, 0x7F, 0x3F, 0x03, 0x03, 0x3E, 0x7C,
   };
 
 
+
+  void Chip8::DebugRender(){
+    for (int y = 0; y < screen_height - 1; y++)
+    {
+        for (int x = 0; x < screen_width - 1; x++)
+        {
+            if (screen.at(x + y * screen_width) == 0)
+                printf(" ");
+            else
+                printf("O");
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+  }
 
 
   Chip8::Chip8(){
@@ -210,7 +248,8 @@ class Chip8 {
     memset(memory, 0, 4096 * sizeof(memory[0]));
 
     for(i = 0; i < 80; i++) memory[i] = fontset[i];
-    
+    for(i = 0; i < 100; i++) memory[i + 80] = fontset_extended[i];
+
     srand(time(NULL));
   }
 
@@ -231,8 +270,18 @@ class Chip8 {
 
     opcode_table = std::vector<OpcodeTableEntry> {
       // opcode|mask|function pointer
+      // chip8
       { 0x00E0, 0xFFFF, &Chip8::Opcode00E0 },
       { 0x00EE, 0xFFFF, &Chip8::Opcode00EE },
+      
+      // Schip extension
+      { 0x00C0, 0xFFF0, &Chip8::Opcode00CN },
+      { 0x00FB, 0xFFFF, &Chip8::Opcode00FB },
+      { 0x00FC, 0xFFFF, &Chip8::Opcode00FC },
+      { 0x00FD, 0xFFFF, &Chip8::Opcode00FD },
+      { 0x00FE, 0xFFFF, &Chip8::Opcode00FE },
+      { 0x00FF, 0xFFFF, &Chip8::Opcode00FF }, 
+      // chip8 continuation
       { 0x0000, 0xF000, &Chip8::Opcode0NNN },
       { 0x1000, 0xF000, &Chip8::Opcode1NNN },
       { 0x2000, 0xF000, &Chip8::Opcode2NNN },
@@ -266,6 +315,10 @@ class Chip8 {
       { 0xF033, 0xF0FF, &Chip8::OpcodeFX33 },
       { 0xF055, 0xF0FF, &Chip8::OpcodeFX55 },
       { 0xF065, 0xF0FF, &Chip8::OpcodeFX65 },
+      // schip continuation
+      { 0xF030, 0xF0FF, &Chip8::OpcodeFX30 },
+      { 0xF075, 0xF0FF, &Chip8::OpcodeFX75 },
+      { 0xF085, 0xF0FF, &Chip8::OpcodeFX85 },
     };
   }
   // "its usually not implemented this days"
@@ -289,7 +342,12 @@ class Chip8 {
 
   void Chip8::Opcode1NNN(Args args) {
     
-    pc = args.NNN;
+    if(quirks.jump) {
+      pc = args.NNN + V[args.X];
+    } 
+    else {
+      pc = args.NNN;
+    }
   }
  
   //call the subroutine
@@ -304,6 +362,7 @@ class Chip8 {
 
     if(V[args.X] == args.NN) pc += 2;
   }
+
   
   void Chip8::Opcode4XNN(Args args) {
 
@@ -361,9 +420,11 @@ class Chip8 {
     V[0xf] = (temp >= 0);
   }
 
+  //https://github.com/Chromatophore/HP48-Superchip/blob/master/investigations/quirk_shift.md
   void Chip8::Opcode8XY6(Args args) {
     // TODO optional or configurable
-    V[args.X] = V[args.Y];
+    if(!quirks.shift)
+      V[args.X] = V[args.Y]; 
     
     uint8_t bit = (V[args.X] & 1);
     V[args.X] = (V[args.X] >> 1);
@@ -380,9 +441,10 @@ class Chip8 {
 
   void Chip8::Opcode8XYE(Args args) {
     // TODO optional or configurable
-    V[args.X] = V[args.Y];
+    if(!quirks.shift)
+      V[args.X] = V[args.Y];
     
-    uint8_t bit = V[args.X] & 128;
+    uint8_t bit = (V[args.X] & 128) >> 7;
     V[args.X] = V[args.X] << 1;
     V[0xf] = bit;
   }
@@ -399,7 +461,6 @@ class Chip8 {
 
   void Chip8::OpcodeBNNN(Args args) {
     // TODO may be wrong implemented (?)
-    // ambiguous instruction
     //pc = args.NNN + V[args.X];
   
     pc = (args.NNN + V[0]) & 0xfff;
@@ -413,45 +474,83 @@ class Chip8 {
   
 
   void Chip8::OpcodeDXYN(Args args) {   
-      
-    uint8_t x = V[args.X] % screen_width;
-    uint8_t y = V[args.Y] % screen_height;
-    uint8_t n = args.N;
-    bool flipped = false;
-    std::cout << screen_width << "\n";
     
-    for(int j = 0;  j < n; j++, y++) {
+    // x,y,n are the same for extended and non-extended mode
+    uint8_t n = args.N;
+    uint8_t x, y;
+    //x = V[args.X];
+    //y = V[args.Y];
+    x = V[args.X] % screen_width;
+    y = V[args.Y] % screen_height;
+    bool flipped = false;
 
-      // we need to wrap y around every time in order to
-      // do not exceed the height
-      // otherwise it may be glichy ;o
-      y %= screen_height;
+    if(hires && n == 0){
 
-      uint8_t pixel = memory[I + j];
-   
-      for(int k = 0; k < 8; k++) {
-        // read from right to left
-        // otherwise screen is mirrored
-        uint8_t bit = ((pixel << k) & 128);
-        if(bit && screen[x + k + y * screen_width]) {
-          flipped |= true;
-        }
+      for(int i = 0; i < 32; i+=2, y++){ 
+        //https://github.com/Chromatophore/HP48-Superchip/blob/master/investigations/quirk_collide.md
+        //if(y > screen_height){ 
+        //  V[0xF] = y - screen_height;
+        //  break;
+       // }
+        for(int j = 0; j < 2; j++){
 
-        //  Sprites are XORed onto the existing screen
-        //  If this causes any pixels to be erased, VF is set to 1, otherwise it is set to 0.
-        //  http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#8xy3
+          uint8_t pixel = memory[I + i + j];
+            
+          for(int k = 0; k < 8; k++) {
+            uint8_t bit = ((pixel << k) & 128);
+            if(x % screen_width + k + (j * 8) >= screen_width || ((y - (i<<1)) % screen_height) + (i<<1) >= screen_height) continue; 
+
+            if(bit && screen[(j * 8 + x + k) + y * screen_width]) {
+              flipped |= true;
+            }
+              
+              screen[(x + k + j * 8) % screen_width + y * screen_width] ^= bit;
+            }
+
         
-        // wrap around cause when pixel goes through x = 64 then y needs to stay the same, not
-        // be increased
-        screen[(x + k) % screen_width + y * screen_width] ^= bit;
+        } 
       }
-
+        V[0xF] = flipped;
+        redraw_screen = true;
     }
     
-    // if any bit is flipped
-    V[0xF] = flipped;
 
-    redraw_screen = true;
+    else {
+        
+      // wrap x and y in default chip8
+      for(int j = 0;  j < n; j++, y++) {
+
+        // we need to wrap y around every time in order to
+        // do not exceed the height
+        // otherwise it may be glichy ;o
+        y %= screen_height;
+
+        uint8_t pixel = memory[I + j];
+        for(int k = 0; k < 8; k++) {
+          // bits are stored in Big-endian
+          // so read from left to right
+          uint8_t bit = ((pixel << k) & 128);
+          
+          if(bit && screen[x + k + y * screen_width]) {
+            flipped |= true;
+          }
+
+          //  Sprites are XORed onto the existing screen
+          //  If this causes any pixels to be erased, VF is set to 1, otherwise it is set to 0.
+          //  http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#8xy3
+          
+          // wrap around cause when pixel goes through x = 64 then y needs to stay the same, not
+          // be increased
+          screen[(x + k) % screen_width + y * screen_width] ^= bit;
+        }
+
+      }
+      
+      // if any bit is flipped
+      V[0xF] = flipped;
+
+      redraw_screen = true;
+    }
   }
 
   void Chip8::OpcodeEX9E(Args args) {
@@ -542,7 +641,7 @@ class Chip8 {
   //"However, modern interpreters (starting with CHIP48 and SUPER-CHIP in the early 90s) used a temporary variable
   //for indexing, so when the instruction was finished, it would still hold the same value as it did before.
   //https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#fx55-and-fx65-store-and-load-memory
-  // TODO optional COSMAC VIP behaviour?  
+  // TODO optional COSMAC VIP behaviour quirk? 
   void Chip8::OpcodeFX55(Args args) {
     for(int i = 0; i <= args.X; i++){
       memory[I + i] = V[i];
@@ -561,9 +660,9 @@ class Chip8 {
 
   void Chip8::Opcode00CN(Args args){
 
-    uint8_t lines = args.N * screen_width;
-    screen.erase(screen.begin(), screen.begin() + lines);
-    std::rotate(screen.begin(), screen.begin() + lines, screen.end());
+    unsigned int lines = args.N * screen_width;
+    std::fill(screen.end() - lines, screen.end(), 0);
+    std::rotate(screen.rbegin(), screen.rbegin() + lines, screen.rend());
   }
   
   
@@ -597,14 +696,14 @@ class Chip8 {
 
     for(int y = 0; y < screen_height; y++){
       
-      uint16_t xline = (y + 1) * screen_width - 1;
+      uint16_t xline = ((y + 1) * screen_width) - 1;
       // delete 4 bytes from the right  
       for(int x = 0; x < 4; x++){
         screen.at(xline - x) = 0;
       }
       // go through line and move screen to erased right
       for(int x = 0; x < screen_width - 4; x++){
-        screen.at(xline + x) = screen.at(xline - x - 4); 
+        screen.at(xline - x) = screen.at(xline - x - 4); 
       } 
       // and erase the first 4 bytes
       for(int x = screen_width - 4; x < screen_width; x++){
@@ -626,30 +725,103 @@ class Chip8 {
   //Disable extended screen mode
   void Chip8::Opcode00FE(Args args){
     //TODO test
-    puts("disabled extended screen mode");
-    screen.resize(2048);
-    screen_height = 32;
+    screen.resize(64 * 32);
+    std::fill(screen.begin(), screen.end(), 0);
     screen_width = 64;
+    screen_height = 32;
+    hires = false;
   }
   
   //Enable extended screen mode for full-screen graphics
   void Chip8::Opcode00FF(Args args){
     //TODO test
-    screen.resize(4096);
-    screen_height = 64;
+    screen.resize(128 * 64);
+    std::fill(screen.begin(), screen.end(), 0);
     screen_width = 128;
+    screen_height = 64;
+    hires = true;    
   }
   
   // 10 bytes font
   void Chip8::OpcodeFX30(Args args){
-    
-    I = V[args.X] * 10;
+    // 80 is offset, because its filled with non-extended fontset
+    I = 80 + V[args.X] * 10;
   }
   
-  void Chip8::OpcodeFX75(Args args){}
+  void Chip8::OpcodeFX75(Args args){
+    for(int i = 0; i <= args.X; i++)
+      rpl_flags[i] = V[i];
+  }
   
-  void Chip8::OpcodeFX85(Args args){}
+  void Chip8::OpcodeFX85(Args args){
+    for(int i = 0; i <= args.X; i++)
+      V[i] = rpl_flags[i];
+  }
 
+  void Chip8::Disassembly(Args args, uint16_t opcode){
+    
+    printf("%04x ", opcode);
+
+    // instruction names taken from http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#3.1
+    switch(opcode){
+
+
+      case 0x00E0: printf("CLS"); break; 
+      case 0x00EE: printf("RET"); break;
+      case 0x0000: printf("\x1B[91mMachine code not implemented\033[0m");break;
+      case 0x1000: printf("JP %03x", args.NNN); break;
+      case 0x2000: printf("CALL #%03x", args.NNN); break; 
+      case 0x3000: printf("SE Vx, #%02x", args.NN); break;
+      case 0x4000: printf("SNE Vx, #%02x", args.NN); break; 
+      case 0x5000: printf("SE Vx, Vy"); break;
+      case 0x6000: printf("LD Vx, #%02x", args.NN); break;
+      case 0x7000: printf("ADD Vx, #%02x", args.NN); break;
+      case 0x8000: printf("LD Vx, Vy"); break;
+      case 0x8001: printf("OR Vx, Vy"); break;
+      case 0x8002: printf("AND Vx, Vy"); break;
+      case 0x8003: printf("XOR Vx, Vy"); break;
+      // -S suffix means carry byte is set
+      case 0x8004: printf("ADDS Vx, Vy"); break;
+      case 0x8005: printf("SUBS Vx, Vy"); break;
+      // "If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0. Then Vx is divided by 2."
+      case 0x8006: printf("SHR Vx, Vy"); break;
+      case 0x8007: printf("SUBNS Vx, Vy"); break;
+      case 0x800E: printf("SHL Vx, Vy"); break;
+      case 0x9000: printf("SNE Vx, Vy"); break;
+      case 0xA000: printf("LD I, #%03x", args.NNN); break;
+      case 0xB000: printf("JP %02x, %03x", V[0], args.NNN); break;
+      case 0xC000: printf("RND Vx, %02x", args.NN); break;
+      case 0xD000: printf("DRW x:%02x, y:%02x, n:%01x", V[args.X], V[args.Y], args.N); break;
+      case 0xE09E: printf("SKP %02x (pressed)", V[args.X]); break;
+      case 0xE0A1: printf("SKNP %02x (Not pressed)", V[args.X]); break;
+      case 0xF007: printf("LD Vx, %02x (DelayTimer)", delay_timer); break;
+      case 0xF00A: printf("LD Vx, %02x (KeyPressed)", last_key_pressed); break;
+      case 0xF015: printf("LD DT, %02x", V[args.X]); break;
+      case 0xF018: printf("LD ST, %02x", V[args.X]); break;
+      case 0xF01E: printf("ADD I, %02x", V[args.X]); break;
+      case 0xF029: printf("LD F, %02x (normal font)", V[args.X]); break;
+      case 0xF033: printf("LD B, %02x", V[args.X]); break;
+      case 0xF055: printf("LD [I], %02x", V[args.X]); break;
+      case 0xF065: printf("LD Vx, [I]"); break;
+    
+      // s-chip
+      case 0x00C0: printf("SCRL DWN #%02x", args.N); break;
+      case 0x00FB: printf("SCRL RIGHT"); break;
+      case 0x00FC: printf("SCRL LEFT"); break;
+      case 0x00FD: printf("EXIT"); break;
+      case 0x00FE: printf("EXTENDED MODE OFF"); break;
+      case 0x00FF: printf("EXTENDED MODE ON"); break;
+      case 0xF030: printf("LD F, %02x (extended font)", V[args.X]); break;
+      case 0xF075: printf("ST FLAG %02x", V[args.X]); break;
+      case 0xF085: printf("LD FLAG %02x", V[args.X]); break;
+
+    }
+    X = args.X, Y = args.Y;
+    printf(" X: %01x, Y: %01x", args.X, args.Y);
+    printf("\n");
+  }
+  
+  
 
 
   //https://dev.krzaq.cc/post/you-dont-need-a-stateful-deleter-in-your-unique_ptr-usually/
@@ -672,13 +844,8 @@ class Chip8 {
   }
 
 
+/*
   void Chip8::SChipExtend(){
-    
-    screen.resize(4096);
-    std::fill(screen.begin(), screen.end(), 0);
-    screen_width = 128;
-    screen_height = 64;
-
     std::vector<OpcodeTableEntry> schip_opcode_table = {
       // opcode|mask|function pointer
       { 0x00C0, 0xFFFF, &Chip8::Opcode00CN },
@@ -695,7 +862,7 @@ class Chip8 {
     opcode_table.insert(opcode_table.end(), schip_opcode_table.begin(), schip_opcode_table.end());
 
   }
-
+*/
 
   void Chip8::MainLoop(){
 
@@ -703,6 +870,7 @@ class Chip8 {
       printf("error: pc out of bound (%.4x)\n", pc);
       return;
     }
+
 
     // first byte, shift and add second byte
     opcode = memory[pc] << 8;
@@ -717,15 +885,30 @@ class Chip8 {
     pc += 2;
     Args args;
     args.value = opcode;
+    
+    if(breakpoints.size() != 0){
+      for(auto bp : breakpoints) 
+        if(bp == pc){      
+          return;
+      }
+    }
+    
+    if(disas) printf("pc: %03x ", pc);
 
+    std::stringstream ss;
+    bool called = false; 
+  
     for(const auto& entry : opcode_table) {
-
+      
       if((opcode & entry.mask) == entry.opcode) {
-        printf("opcode: %x\n", entry.opcode);
+        //std::cout <<std::hex <<entry.mask <<"\t";
+        called = true;
         auto handler = entry.handler;
         // calling opcode through function pointer
         (this->*handler)(args);
+        if(disas) Disassembly(args, entry.opcode);
         break;
       }
     }
+    if(!called) std::cout << "\x1B[91munknown opcode: \033[0m" << std::hex << opcode << "\n";
 }
