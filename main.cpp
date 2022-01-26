@@ -28,6 +28,7 @@ struct Settings {
   bool redraw_every_opcode = false;
   bool debugging_mode = false;
   bool logs = false;
+  bool pcspkr = false;
 };
 
 struct Settings settings;
@@ -51,9 +52,11 @@ int main(int argc, char* argv[]){
       puts("Usage: ./chip8 [options...] <file>\n\
               -t,  --ticks <num>             Ticks per second, must be 1-10000\n\
               -e,  --extend <version>        Extend chip8. Available: schip\n\
+              -b,  --breakpoint <addr in hex>Sets breakpoint on a particular address\n\
               -d,  --disassembly             Print executed instructions to stderr\n\
               -df, --disassembly-file <file> Dissasembly file and print\n\
               -r,  --refresh                 Set glfwSwapInterval(0) (Increases CPU usage)\n\
+              --beep, --pcspkr               If there's a buzzer on your motherboard then use it for sound\n\
               -h,  --help                    Print this\n\
          ");
     return 0;
@@ -79,7 +82,7 @@ int main(int argc, char* argv[]){
       if(is_num) {
         int num_ticks = (uint32_t)stol(ticks);
         
-        if(num_ticks <= 0 || num_ticks >= 10000) {
+        if(num_ticks < 1 || num_ticks > 10000) {
           //std::cerr << "Invalid ticks number, must be between 1 and 10000: " << ticks << '\n';
           throw std::invalid_argument("Invalid ticks number, must be between 1 and 10000");
         } 
@@ -111,7 +114,9 @@ int main(int argc, char* argv[]){
     // TODO
     else if((arg == "-q") || (arg == "--quirks")) {}
    
-
+    else if((arg == "--beep") || (arg == "--pcspkr")){
+      chip8.pcspkr = true;
+    }
 
     //TODO logging to a file
     else if((arg == "-l") || (arg == "--log")) settings.logs = true;
@@ -185,7 +190,6 @@ int main(int argc, char* argv[]){
   uint32_t interval = 1000000000 / settings.ticks_in_sec;   
   float scale = (float)PIXEL_SIZE / (float)renderer.font_size;
   
-  //chip8.hires = true;
   bool extended_mode = 0;
   while(!glfwWindowShouldClose(window)){
           

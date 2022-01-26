@@ -33,6 +33,7 @@ LINUX_GL_LIBS = -lGL
 CXXFLAGS = -I/usr/include/freetype2 -lfreetype
 CXXFLAGS += -g -Wall -Wformat
 LIBS = glad/glad.c renderer.cpp
+LIBS += portaudio/libportaudio.a -lrt -lm -lasound -ljack -pthread
 
 ##---------------------------------------------------------------------
 ## OPENGL ES

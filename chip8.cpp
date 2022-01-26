@@ -8,13 +8,25 @@
 #include <time.h>
 #include <filesystem>
 #include <chrono>
-
 #include <algorithm>
+// beep sound
+#include <linux/input.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "beep.cpp"
 
 class Chip8 {
   public:
     Chip8();
-    ~Chip8(){};
+    ~Chip8(){
+      if(pcspkr){
+        ev.value = 0;
+        if(write(speaker, &ev, sizeof(struct input_event)) < 0){
+            printf("cant speak");
+        } 
+      }
+    };
     void MainLoop();
     bool LoadRom(const char * filename);
     void Reset();
@@ -29,8 +41,6 @@ class Chip8 {
     uint16_t I;
     // program counter
     uint16_t pc; 
-
-    int X, Y;
 
     std::vector<uint8_t> screen;
     uint8_t screen_width, screen_height;
@@ -60,7 +70,8 @@ class Chip8 {
     std::string curr_opcode = "";
     bool disas = false;
     bool is_extended = false;
-    
+    bool pcspkr = false;
+
     struct Quirks {
       bool jump = false;
       bool shift = false;
@@ -73,6 +84,7 @@ class Chip8 {
 
   private:
  
+    int X, Y;
 
     struct OpcodeTableEntry {
       uint16_t opcode;
@@ -97,9 +109,16 @@ class Chip8 {
     uint16_t opcode;
     uint8_t delay_timer;
     uint8_t sound_timer;
+    bool sound_timer_is_counting = false;
+   
+    struct input_event ev;
+    int speaker;
+    
+    Beep beep;
+
     //std::chrono::steady_clock time_delay_timer;
     std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_delay_timer;
-    //std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_sound_timer;
+    std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 1000000000>>> time_sound_timer;
 
     void Opcode0NNN(Args args);
     void Opcode00E0(Args args);
@@ -151,6 +170,7 @@ class Chip8 {
 };
 
 
+    char SPKR_PATH[] = "/dev/input/by-path/platform-pcspkr-event-spkr";
 
   // every char is 5 bytes long
   uint8_t fontset[80] ={ 
@@ -229,8 +249,18 @@ class Chip8 {
     opcode = 0;
     delay_timer = 0;
     sound_timer = 0;
+    sound_timer_is_counting = false;
     time_delay_timer = std::chrono::steady_clock::now();
+
+    speaker = open(SPKR_PATH, O_RDWR);
+    ev.type = EV_SND;
+    ev.code = SND_TONE;
+    ev.value = 200;
+    
+    beep.Init();
+
     //time_sound_timer = std::chrono::steady_clock::now();
+    
     redraw_screen = false;
     last_key_pressed = -1;
    
@@ -484,7 +514,10 @@ class Chip8 {
     y = V[args.Y] % screen_height;
     bool flipped = false;
 
-    if(hires && n == 0){
+    // https://github.com/Chromatophore/HP48-Superchip/blob/master/investigations/quirk_16x.md
+    // seems like its not the original behaviour, at least for HP48
+
+    if(n == 0){
 
       for(int i = 0; i < 32; i+=2, y++){ 
         //https://github.com/Chromatophore/HP48-Superchip/blob/master/investigations/quirk_collide.md
@@ -516,7 +549,6 @@ class Chip8 {
     
 
     else {
-        
       // wrap x and y in default chip8
       for(int j = 0;  j < n; j++, y++) {
 
@@ -609,8 +641,24 @@ class Chip8 {
   }
 
   void Chip8::OpcodeFX18(Args args) {
-
+    
+    time_sound_timer = std::chrono::steady_clock::now();
     sound_timer = V[args.X];
+ 
+    if(sound_timer == 0) return;
+
+    ev.value = 200;
+    if(pcspkr){
+      if(write(speaker, &ev, sizeof(struct input_event)) < 0){
+        printf("cant speak");
+        throw 1;
+      }
+    }
+    else {
+      beep.Play();
+    }
+    sound_timer_is_counting = true;
+
   }
 
   void Chip8::OpcodeFX1E(Args args) {
@@ -722,7 +770,7 @@ class Chip8 {
     //TODO flag that informes to close?
   }
   
-  //Disable extended screen mode
+  //Disable hires
   void Chip8::Opcode00FE(Args args){
     //TODO test
     screen.resize(64 * 32);
@@ -791,13 +839,13 @@ class Chip8 {
       case 0xA000: printf("LD I, #%03x", args.NNN); break;
       case 0xB000: printf("JP %02x, %03x", V[0], args.NNN); break;
       case 0xC000: printf("RND Vx, %02x", args.NN); break;
-      case 0xD000: printf("DRW x:%02x, y:%02x, n:%01x", V[args.X], V[args.Y], args.N); break;
+      case 0xD000: printf("\x1B[91mDRW x:%02x, y:%02x, n:%01x\033[0m", V[args.X], V[args.Y], args.N); break;
       case 0xE09E: printf("SKP %02x (pressed)", V[args.X]); break;
       case 0xE0A1: printf("SKNP %02x (Not pressed)", V[args.X]); break;
       case 0xF007: printf("LD Vx, %02x (DelayTimer)", delay_timer); break;
       case 0xF00A: printf("LD Vx, %02x (KeyPressed)", last_key_pressed); break;
-      case 0xF015: printf("LD DT, %02x", V[args.X]); break;
-      case 0xF018: printf("LD ST, %02x", V[args.X]); break;
+      case 0xF015: printf("LD DelayTimer, %02x", V[args.X]); break;
+      case 0xF018: printf("LD SoundTimer, %02x", V[args.X]); break;
       case 0xF01E: printf("ADD I, %02x", V[args.X]); break;
       case 0xF029: printf("LD F, %02x (normal font)", V[args.X]); break;
       case 0xF033: printf("LD B, %02x", V[args.X]); break;
@@ -882,11 +930,28 @@ class Chip8 {
     If you forget to increment it in one of the instructions, you’ll have problems. Do it here!
     https://tobiasvl.github.io/blog/write-a-chip-8-emulator/#fetch
     */
-    pc += 2;
-    Args args;
-    args.value = opcode;
+   
+    if(sound_timer > 0 && sound_timer_is_counting) {
     
-    if(breakpoints.size() != 0){
+      sound_timer--;
+
+      if(sound_timer <= 0){
+        
+        if(pcspkr){
+          ev.value = 0;
+          if(write(speaker, &ev, sizeof(struct input_event)) < 0)
+            printf("cant speak");
+        }
+        else{
+          beep.Stop();
+        }
+        
+        sound_timer_is_counting = false;
+      }
+
+    }
+
+  if(breakpoints.size() != 0){
       for(auto bp : breakpoints) 
         if(bp == pc){      
           return;
@@ -894,6 +959,12 @@ class Chip8 {
     }
     
     if(disas) printf("pc: %03x ", pc);
+
+
+    pc += 2;
+    Args args;
+    args.value = opcode;
+    
 
     std::stringstream ss;
     bool called = false; 
